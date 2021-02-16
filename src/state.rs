@@ -2,14 +2,21 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{CanonicalAddr, Storage, Uint128};
-use cosmwasm_storage::{singleton, singleton_read, ReadonlySingleton, Singleton, Bucket, ReadonlyBucket, bucket_read, bucket};
+use cosmwasm_storage::{
+    bucket, bucket_read, singleton, singleton_read, Bucket, ReadonlyBucket, ReadonlySingleton,
+    Singleton,
+};
 
 pub static CONFIG_KEY: &[u8] = b"config";
 const STAKING_KEY: &[u8] = b"staking";
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct State {
+    pub admin: CanonicalAddr,
     pub address_cw20_loterra_smart_contract: CanonicalAddr,
+    pub unbonded_period: u64,
+    pub denom_reward: String,
+    pub safe_lock: bool,
 }
 
 pub fn config<S: Storage>(storage: &mut S) -> Singleton<S, State> {
