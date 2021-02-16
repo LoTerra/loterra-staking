@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InitMsg {
+    pub address_loterra_smart_contract: HumanAddr,
     pub address_cw20_loterra_smart_contract: HumanAddr,
     pub unbonded_period: u64,
     pub denom_reward: String,
@@ -21,6 +22,8 @@ pub enum HandleMsg {
     ClaimReward {},
     /// Claim unStaked tokens, available after unBonded period
     ClaimUnStaked {},
+    /// LoTerra update available amount reward
+    UpdateRewardAvailable {},
     /// Admin
     /// Security owner can switch on off to prevent exploit
     SafeLock {},

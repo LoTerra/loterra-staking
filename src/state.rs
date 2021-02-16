@@ -13,6 +13,7 @@ const STAKING_KEY: &[u8] = b"staking";
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct State {
     pub admin: CanonicalAddr,
+    pub address_loterra_smart_contract: CanonicalAddr,
     pub address_cw20_loterra_smart_contract: CanonicalAddr,
     pub unbonded_period: u64,
     pub denom_reward: String,

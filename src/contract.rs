@@ -1,10 +1,7 @@
-use cosmwasm_std::{
-    to_binary, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
-    InitResponse, LogAttribute, Querier, StdError, StdResult, Storage, Uint128, WasmMsg,
-};
+use cosmwasm_std::{to_binary, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, InitResponse, LogAttribute, Querier, StdError, StdResult, Storage, Uint128, WasmMsg, Order, CanonicalAddr};
 
-use crate::msg::HandleMsg::Stake;
-use crate::msg::{ConfigResponse, HandleMsg, InitMsg, QueryMsg};
+
+use crate::msg::{ConfigResponse, HandleMsg, InitMsg, QueryMsg, GetAllHoldersResponse};
 use crate::state::{config, config_read, staking_storage, StakingInfo, State};
 use std::ops::{Add, Sub};
 
@@ -15,12 +12,14 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<InitResponse> {
     let state = State {
         admin: deps.api.canonical_address(&env.message.sender)?,
+        address_loterra_smart_contract: deps.api.canonical_address(&msg.address_loterra_smart_contract)?,
         address_cw20_loterra_smart_contract: deps
             .api
             .canonical_address(&msg.address_cw20_loterra_smart_contract)?,
         unbonded_period: msg.unbonded_period,
         denom_reward: msg.denom_reward,
         safe_lock: false,
+
     };
 
     config(&mut deps.storage).save(&state)?;
@@ -40,6 +39,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::ClaimUnStaked {} => handle_claim_unstake(deps, env),
         HandleMsg::SafeLock {} => handle_safe_lock(deps, env),
         HandleMsg::Renounce {} => handle_renounce(deps, env),
+        HandleMsg::UpdateRewardAvailable {} => handle_update_reward_available(deps, env),
     }
 }
 fn encode_msg_execute(msg: QueryMsg, address: HumanAddr) -> StdResult<CosmosMsg> {
@@ -138,7 +138,7 @@ pub fn handle_stake<S: Storage, A: Api, Q: Querier>(
                     period: 0,
                     available: Uint128::zero(),
                 },
-            );
+            )?;
         }
     };
 
@@ -356,6 +356,93 @@ pub fn handle_claim_reward<S: Storage, A: Api, Q: Querier>(
     })
 }
 
+pub fn handle_update_reward_available<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+) -> StdResult<HandleResponse> {
+    let state = config(&mut deps.storage).load()?;
+    if state.safe_lock {
+        return Err(StdError::generic_err(
+            "Contract deactivated for update or/and preventing security issue",
+        ));
+    }
+
+    let sent = match env.message.sent_funds.len() {
+        0 => Err(StdError::generic_err(format!(
+            "You need to send funds for share holders"
+        ))),
+        1 => {
+            if env.message.sent_funds[0].denom == state.denom_reward {
+                Ok(env.message.sent_funds[0].amount)
+            } else {
+                Err(StdError::generic_err(format!(
+                    "Only {} is accepted",
+                    state.denom_reward.clone()
+                )))
+            }
+        }
+        _ => Err(StdError::generic_err(format!(
+            "Send only {}, no extra denom",
+            state.denom_reward.clone()
+        ))),
+    }?;
+
+    let mut total_staked = Uint128::zero();
+    let staking = staking_storage(&mut deps.storage)
+        .range(None, None, Order::Descending)
+        .flat_map(|item| {
+            item.and_then(|(k, staker)| {
+                if !staker.bonded.is_zero(){
+                    total_staked.add(staker.bonded);
+                }
+
+                Ok(GetAllHoldersResponse{ address: CanonicalAddr::from(k), bonded: staker.bonded})
+            })
+        })
+        .collect::<Vec<GetAllHoldersResponse>>();
+
+    let mut claimed_amount = Uint128::zero();
+
+    if total_staked.is_zero(){
+        return Err(StdError::generic_err("No amount staked"))
+    }
+
+    for staker in staking {
+        if !staker.bonded.is_zero(){
+            let reward = staker.bonded.multiply_ratio(sent, total_staked);
+            if !reward.is_zero(){
+                claimed_amount.add(reward);
+                staking_storage(&mut deps.storage).update::<_>(&staker.address.as_slice(), |stake| {
+                    let mut stake_data = stake.unwrap();
+                    stake_data.available.add(reward);
+                    Ok(stake_data)
+                })?;
+            }
+        }
+    }
+
+    let final_refund_balance = sent.sub(claimed_amount)?;
+
+    if final_refund_balance.is_zero(){
+        return Ok(HandleResponse::default());
+    }
+
+    let msg = BankMsg::Send {
+        from_address: env.contract.address.clone(),
+        to_address: env.message.sender.clone(),
+        amount: vec![Coin {
+            denom: state.denom_reward,
+            amount: final_refund_balance,
+        }],
+    };
+
+    Ok(HandleResponse{
+        messages: vec![msg.into()],
+        log: vec![],
+        data: None
+    })
+}
+
 pub fn query<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
@@ -401,7 +488,7 @@ fn query_transfer<S: Storage, A: Api, Q: Querier>(_deps: &Extern<S, A, Q>) -> St
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env};
-    use cosmwasm_std::{coins, from_binary, StdError};
+    use cosmwasm_std::{coins};
 
     struct BeforeAll {
         default_length: usize,
@@ -409,6 +496,7 @@ mod tests {
         default_sender_two: HumanAddr,
         default_sender_owner: HumanAddr,
         default_contract_address: HumanAddr,
+        default_contract_address_two: HumanAddr,
     }
     fn before_all() -> BeforeAll {
         BeforeAll {
@@ -419,12 +507,16 @@ mod tests {
             default_contract_address: HumanAddr::from(
                 "terra1q88h7ewu6h3am4mxxeqhu3srt7zw4z5s20LOTA",
             ),
+            default_contract_address_two: HumanAddr::from(
+                "terra1q88h7ewu6h3am4mxxeqhu3srt7zw4z5LOTERRA",
+            ),
         }
     }
 
     fn default_init<S: Storage, A: Api, Q: Querier>(mut deps: &mut Extern<S, A, Q>) {
         let before_all = before_all();
         let init_msg = InitMsg {
+            address_loterra_smart_contract: before_all.default_contract_address_two,
             address_cw20_loterra_smart_contract: before_all.default_contract_address,
             unbonded_period: 100,
             denom_reward: "uusd".to_string(),
