@@ -3,35 +3,109 @@
   "title": "HandleMsg",
   "anyOf": [
     {
+      "description": "Stake tokens",
       "type": "object",
       "required": [
-        "increment"
+        "stake"
       ],
       "properties": {
-        "increment": {
+        "stake": {
+          "type": "object",
+          "required": [
+            "amount"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "UnStake tokens,",
+      "type": "object",
+      "required": [
+        "un_stake"
+      ],
+      "properties": {
+        "un_stake": {
+          "type": "object",
+          "required": [
+            "amount"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "Claim reward",
+      "type": "object",
+      "required": [
+        "claim_reward"
+      ],
+      "properties": {
+        "claim_reward": {
           "type": "object"
         }
       }
     },
     {
+      "description": "Claim unStaked tokens, available after unBonded period",
       "type": "object",
       "required": [
-        "reset"
+        "claim_un_staked"
       ],
       "properties": {
-        "reset": {
-          "type": "object",
-          "required": [
-            "count"
-          ],
-          "properties": {
-            "count": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
+        "claim_un_staked": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "description": "LoTerra update available amount reward",
+      "type": "object",
+      "required": [
+        "update_reward_available"
+      ],
+      "properties": {
+        "update_reward_available": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "description": "Admin Security owner can switch on off to prevent exploit",
+      "type": "object",
+      "required": [
+        "safe_lock"
+      ],
+      "properties": {
+        "safe_lock": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "description": "Admin renounce and restore contract address to admin for full decentralization",
+      "type": "object",
+      "required": [
+        "renounce"
+      ],
+      "properties": {
+        "renounce": {
+          "type": "object"
         }
       }
     }
-  ]
+  ],
+  "definitions": {
+    "Uint128": {
+      "type": "string"
+    }
+  }
 }

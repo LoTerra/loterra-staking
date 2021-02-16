@@ -3,15 +3,96 @@
   "title": "QueryMsg",
   "anyOf": [
     {
+      "description": "Get config state",
       "type": "object",
       "required": [
-        "get_count"
+        "config"
       ],
       "properties": {
-        "get_count": {
+        "config": {
           "type": "object"
         }
       }
+    },
+    {
+      "description": "Get specific holder, address and balance",
+      "type": "object",
+      "required": [
+        "get_holder"
+      ],
+      "properties": {
+        "get_holder": {
+          "type": "object",
+          "required": [
+            "address"
+          ],
+          "properties": {
+            "address": {
+              "$ref": "#/definitions/HumanAddr"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "Not used to be called directly",
+      "type": "object",
+      "required": [
+        "transfer_from"
+      ],
+      "properties": {
+        "transfer_from": {
+          "type": "object",
+          "required": [
+            "amount",
+            "owner",
+            "recipient"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "owner": {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            "recipient": {
+              "$ref": "#/definitions/HumanAddr"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "Not used to be called directly",
+      "type": "object",
+      "required": [
+        "transfer"
+      ],
+      "properties": {
+        "transfer": {
+          "type": "object",
+          "required": [
+            "amount",
+            "recipient"
+          ],
+          "properties": {
+            "amount": {
+              "$ref": "#/definitions/Uint128"
+            },
+            "recipient": {
+              "$ref": "#/definitions/HumanAddr"
+            }
+          }
+        }
+      }
     }
-  ]
+  ],
+  "definitions": {
+    "HumanAddr": {
+      "type": "string"
+    },
+    "Uint128": {
+      "type": "string"
+    }
+  }
 }

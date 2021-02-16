@@ -3,12 +3,26 @@
   "title": "InitMsg",
   "type": "object",
   "required": [
-    "count"
+    "address_cw20_loterra_smart_contract",
+    "denom_reward",
+    "unbonded_period"
   ],
   "properties": {
-    "count": {
+    "address_cw20_loterra_smart_contract": {
+      "$ref": "#/definitions/HumanAddr"
+    },
+    "denom_reward": {
+      "type": "string"
+    },
+    "unbonded_period": {
       "type": "integer",
-      "format": "int32"
+      "format": "uint64",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "HumanAddr": {
+      "type": "string"
     }
   }
 }

@@ -1,8 +1,8 @@
 use cosmwasm_std::{to_binary, Api, BankMsg, Binary, Coin, CosmosMsg, Env, Extern, HandleResponse, HumanAddr, InitResponse, LogAttribute, Querier, StdError, StdResult, Storage, Uint128, WasmMsg, Order, CanonicalAddr};
 
 
-use crate::msg::{ConfigResponse, HandleMsg, InitMsg, QueryMsg, GetAllHoldersResponse};
-use crate::state::{config, config_read, staking_storage, StakingInfo, State};
+use crate::msg::{ConfigResponse, HandleMsg, InitMsg, QueryMsg, GetHolderResponse, GetBondedResponse};
+use crate::state::{config, config_read, staking_storage, StakingInfo, State, staking_storage_read};
 use std::ops::{Add, Sub};
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
@@ -12,7 +12,6 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<InitResponse> {
     let state = State {
         admin: deps.api.canonical_address(&env.message.sender)?,
-        address_loterra_smart_contract: deps.api.canonical_address(&msg.address_loterra_smart_contract)?,
         address_cw20_loterra_smart_contract: deps
             .api
             .canonical_address(&msg.address_cw20_loterra_smart_contract)?,
@@ -396,10 +395,10 @@ pub fn handle_update_reward_available<S: Storage, A: Api, Q: Querier>(
                     total_staked.add(staker.bonded);
                 }
 
-                Ok(GetAllHoldersResponse{ address: CanonicalAddr::from(k), bonded: staker.bonded})
+                Ok(GetBondedResponse{ address: CanonicalAddr::from(k), bonded: staker.bonded})
             })
         })
-        .collect::<Vec<GetAllHoldersResponse>>();
+        .collect::<Vec<GetBondedResponse>>();
 
     let mut claimed_amount = Uint128::zero();
 
@@ -449,7 +448,6 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
-        QueryMsg::GetAllHolders {} => to_binary(&query_all_holders(deps)?),
         QueryMsg::GetHolder { address } => to_binary(&query_holder(deps, address)?),
         QueryMsg::TransferFrom { .. } => to_binary(&query_transfer_from(deps)?),
         QueryMsg::Transfer { .. } => to_binary(&query_transfer(deps)?),
@@ -462,19 +460,30 @@ fn query_config<S: Storage, A: Api, Q: Querier>(
     let state = config_read(&deps.storage).load()?;
     Ok(state)
 }
-fn query_all_holders<S: Storage, A: Api, Q: Querier>(
-    deps: &Extern<S, A, Q>,
-) -> StdResult<ConfigResponse> {
-    let state = config_read(&deps.storage).load()?;
-    Ok(state)
-}
+
 fn query_holder<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-    _address: HumanAddr,
-) -> StdResult<ConfigResponse> {
-    let state = config_read(&deps.storage).load()?;
-    Ok(state)
+    address: HumanAddr,
+) -> StdResult<GetHolderResponse> {
+    let address_to_canonical = deps.api.canonical_address(&address)?;
+    let store = match staking_storage_read(&deps.storage).may_load(&address_to_canonical.as_slice())? {
+        Some(stake) => Some(stake),
+        None => {
+            return Err(StdError::NotFound {
+                kind: "not found".to_string(),
+                backtrace: None,
+            })
+        }
+    }.unwrap();
+
+    Ok(GetHolderResponse{
+        address,
+        bonded: store.bonded,
+        un_bonded: store.un_bonded,
+        available: store.available
+    })
 }
+
 fn query_transfer_from<S: Storage, A: Api, Q: Querier>(
     _deps: &Extern<S, A, Q>,
 ) -> StdResult<StdError> {
@@ -516,7 +525,6 @@ mod tests {
     fn default_init<S: Storage, A: Api, Q: Querier>(mut deps: &mut Extern<S, A, Q>) {
         let before_all = before_all();
         let init_msg = InitMsg {
-            address_loterra_smart_contract: before_all.default_contract_address_two,
             address_cw20_loterra_smart_contract: before_all.default_contract_address,
             unbonded_period: 100,
             denom_reward: "uusd".to_string(),

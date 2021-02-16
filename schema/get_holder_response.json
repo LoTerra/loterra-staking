@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GetHolderResponse",
+  "type": "object",
+  "required": [
+    "address",
+    "available",
+    "bonded",
+    "un_bonded"
+  ],
+  "properties": {
+    "address": {
+      "$ref": "#/definitions/HumanAddr"
+    },
+    "available": {
+      "$ref": "#/definitions/Uint128"
+    },
+    "bonded": {
+      "$ref": "#/definitions/Uint128"
+    },
+    "un_bonded": {
+      "$ref": "#/definitions/Uint128"
+    }
+  },
+  "definitions": {
+    "HumanAddr": {
+      "type": "string"
+    },
+    "Uint128": {
+      "type": "string"
+    }
+  }
+}

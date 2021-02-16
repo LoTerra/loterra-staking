@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InitMsg {
-    pub address_loterra_smart_contract: HumanAddr,
     pub address_cw20_loterra_smart_contract: HumanAddr,
     pub unbonded_period: u64,
     pub denom_reward: String,
@@ -36,8 +35,6 @@ pub enum HandleMsg {
 pub enum QueryMsg {
     /// Get config state
     Config {},
-    /// Get tokens holders, address and balance
-    GetAllHolders {},
     /// Get specific holder, address and balance
     GetHolder { address: HumanAddr },
     /// Not used to be called directly
@@ -51,23 +48,18 @@ pub enum QueryMsg {
         recipient: HumanAddr,
         amount: Uint128,
     },
-    /*/// Not used to call
-    Allowance{
-        owner: HumanAddr,
-        spender: HumanAddr,
-    }*/
 }
 
 // We define a custom struct for each query response
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct GetAllHoldersResponse {
+pub struct GetBondedResponse {
     pub address: CanonicalAddr,
     pub bonded: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct GetHolderResponse {
-    pub address: CanonicalAddr,
+    pub address: HumanAddr,
     pub bonded: Uint128,
     pub un_bonded: Uint128,
     pub available: Uint128,
