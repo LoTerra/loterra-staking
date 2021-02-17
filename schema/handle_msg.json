@@ -67,13 +67,13 @@
       }
     },
     {
-      "description": "LoTerra update available amount reward",
+      "description": "LoTerra payout staking reward",
       "type": "object",
       "required": [
-        "update_reward_available"
+        "payout_reward"
       ],
       "properties": {
-        "update_reward_available": {
+        "payout_reward": {
           "type": "object"
         }
       }
