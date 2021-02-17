@@ -498,6 +498,7 @@ mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env};
     use cosmwasm_std::{coins};
+    use cosmwasm_std::StdError::{GenericErr};
 
     struct BeforeAll {
         default_length: usize,
@@ -543,5 +544,139 @@ mod tests {
         let mut deps = mock_dependencies(before_all.default_length, &[]);
         let env = mock_env("creator", &coins(1000, "earth"));
         default_init(&mut deps);
+    }
+    mod safe_lock {
+        use super::*;
+        // handle_switch
+
+        #[test]
+        fn only_admin() {
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender_two, &[]);
+
+            let res = handle_safe_lock(&mut deps, env);
+            match res {
+                Err(StdError::Unauthorized { .. }) => {}
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
+        fn success() {
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender_owner, &[]);
+
+            // Switch to Off
+            let res = handle_safe_lock(&mut deps, env.clone()).unwrap();
+            assert_eq!(res.messages.len(), 0);
+            let state = config(&mut deps.storage).load().unwrap();
+            assert!(state.safe_lock);
+            // Switch to On
+            let res = handle_safe_lock(&mut deps, env).unwrap();
+            println!("{:?}", res);
+            let state = config(&mut deps.storage).load().unwrap();
+            assert!(!state.safe_lock);
+        }
+    }
+    mod renounce {
+        use super::*;
+        // handle_renounce
+        #[test]
+        fn only_admin() {
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender_two, &[]);
+
+            let res = handle_renounce(&mut deps, env);
+            match res {
+                Err(StdError::Unauthorized { .. }) => {}
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
+        fn safe_lock_on() {
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender_owner, &[]);
+
+            let mut state = config(&mut deps.storage).load().unwrap();
+            state.safe_lock = true;
+            config(&mut deps.storage).save(&state).unwrap();
+
+            let res = handle_renounce(&mut deps, env);
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "Contract is locked");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
+        fn success() {
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender_owner.clone(), &[]);
+
+            // Transfer power to admin
+            let res = handle_renounce(&mut deps, env.clone()).unwrap();
+            assert_eq!(res.messages.len(), 0);
+            let state = config(&mut deps.storage).load().unwrap();
+            assert_ne!(
+                state.admin,
+                deps.api
+                    .canonical_address(&before_all.default_sender_owner)
+                    .unwrap()
+            );
+            assert_eq!(
+                state.admin,
+                deps.api.canonical_address(&env.contract.address).unwrap()
+            );
+        }
+    }
+
+    mod stake {
+        use super::*;
+        // handle_stake
+        #[test]
+        fn do_not_send_funds(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender_owner.clone(), &[Coin{ denom: "x".to_string(), amount: Uint128(2_000) }]);
+            let msg = HandleMsg::Stake { amount: Uint128(2_000) };
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "Do not send funds with stake");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
+        fn success(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender_owner.clone(), &[]);
+            let msg = HandleMsg::Stake { amount: Uint128(2_000) };
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            println!("{:?}", res);
+            assert_eq!(res.messages.len(), 1);
+            let store = staking_storage(&mut deps.storage).load(&deps.api.canonical_address(&before_all.default_sender_owner).unwrap().as_slice()).unwrap();
+            println!("{:?}", store);
+            assert_eq!(store.bonded, Uint128(2_000));
+        }
     }
 }
