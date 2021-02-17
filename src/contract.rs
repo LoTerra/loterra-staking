@@ -38,7 +38,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::ClaimUnStaked {} => handle_claim_unstake(deps, env),
         HandleMsg::SafeLock {} => handle_safe_lock(deps, env),
         HandleMsg::Renounce {} => handle_renounce(deps, env),
-        HandleMsg::UpdateRewardAvailable {} => handle_update_reward_available(deps, env),
+        HandleMsg::PayoutReward {} => handle_payout_reward(deps, env),
     }
 }
 fn encode_msg_execute(msg: QueryMsg, address: HumanAddr) -> StdResult<CosmosMsg> {
@@ -122,7 +122,7 @@ pub fn handle_stake<S: Storage, A: Api, Q: Querier>(
                 &sender_canonical.as_slice(),
                 |stake| {
                     let mut stake_data = stake.unwrap();
-                    stake_data.bonded.add(amount);
+                    stake_data.bonded = stake_data.bonded.add(amount);
 
                     Ok(stake_data)
                 },
@@ -179,7 +179,7 @@ pub fn handle_unstake<S: Storage, A: Api, Q: Querier>(
     }
 
     if !env.message.sent_funds.is_empty() {
-        return Err(StdError::generic_err("Do not send funds with stake"));
+        return Err(StdError::generic_err("Do not send funds with un_stake"));
     }
 
     let sender_canonical = deps.api.canonical_address(&env.message.sender)?;
@@ -195,8 +195,8 @@ pub fn handle_unstake<S: Storage, A: Api, Q: Querier>(
                             stake_data.bonded.u128().to_string()
                         )));
                     }
-                    stake_data.bonded.sub(amount);
-                    stake_data.un_bonded.add(amount);
+                    stake_data.bonded = stake_data.bonded.sub(amount)?;
+                    stake_data.un_bonded = stake_data.un_bonded.add(amount);
                     stake_data.period = env.block.height + state.unbonded_period;
                     Ok(stake_data)
                 },
@@ -236,7 +236,7 @@ pub fn handle_claim_unstake<S: Storage, A: Api, Q: Querier>(
     }
 
     if !env.message.sent_funds.is_empty() {
-        return Err(StdError::generic_err("Do not send funds with stake"));
+        return Err(StdError::generic_err("Do not send funds"));
     }
 
     let sender_canonical = deps.api.canonical_address(&env.message.sender)?;
@@ -263,6 +263,7 @@ pub fn handle_claim_unstake<S: Storage, A: Api, Q: Querier>(
     staking_storage(&mut deps.storage).update::<_>(&sender_canonical.as_slice(), |stake| {
         let mut stake_data = stake.unwrap();
         stake_data.un_bonded = Uint128::zero();
+        stake_data.period = 0;
         Ok(stake_data)
     })?;
 
@@ -303,7 +304,7 @@ pub fn handle_claim_reward<S: Storage, A: Api, Q: Querier>(
     }
 
     if !env.message.sent_funds.is_empty() {
-        return Err(StdError::generic_err("Do not send funds with stake"));
+        return Err(StdError::generic_err("Do not send funds"));
     }
 
     let sender_canonical = deps.api.canonical_address(&env.message.sender)?;
@@ -311,6 +312,10 @@ pub fn handle_claim_reward<S: Storage, A: Api, Q: Querier>(
     let contract_balance = deps
         .querier
         .query_balance(env.contract.address.clone(), &state.denom_reward)?;
+
+    if store.available.is_zero(){
+        return Err(StdError::generic_err("No rewards available"));
+    }
 
     if contract_balance.amount < store.available {
         return Err(StdError::generic_err("Contract balance too low"));
@@ -355,7 +360,7 @@ pub fn handle_claim_reward<S: Storage, A: Api, Q: Querier>(
     })
 }
 
-pub fn handle_update_reward_available<S: Storage, A: Api, Q: Querier>(
+pub fn handle_payout_reward<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
 ) -> StdResult<HandleResponse> {
@@ -392,7 +397,7 @@ pub fn handle_update_reward_available<S: Storage, A: Api, Q: Querier>(
         .flat_map(|item| {
             item.and_then(|(k, staker)| {
                 if !staker.bonded.is_zero(){
-                    total_staked.add(staker.bonded);
+                    total_staked = total_staked.add(staker.bonded);
                 }
 
                 Ok(GetBondedResponse{ address: CanonicalAddr::from(k), bonded: staker.bonded})
@@ -410,10 +415,10 @@ pub fn handle_update_reward_available<S: Storage, A: Api, Q: Querier>(
         if !staker.bonded.is_zero(){
             let reward = staker.bonded.multiply_ratio(sent, total_staked);
             if !reward.is_zero(){
-                claimed_amount.add(reward);
+                claimed_amount = claimed_amount.add(reward);
                 staking_storage(&mut deps.storage).update::<_>(&staker.address.as_slice(), |stake| {
                     let mut stake_data = stake.unwrap();
-                    stake_data.available.add(reward);
+                    stake_data.available = stake_data.available.add(reward);
                     Ok(stake_data)
                 })?;
             }
@@ -672,11 +677,295 @@ mod tests {
             let env = mock_env(before_all.default_sender_owner.clone(), &[]);
             let msg = HandleMsg::Stake { amount: Uint128(2_000) };
             let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
-            println!("{:?}", res);
             assert_eq!(res.messages.len(), 1);
+            assert_eq!(
+                res.messages[0],
+                CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: before_all.default_contract_address,
+                    msg: Binary::from(r#"{"transfer_from":{"owner":"terra1q88h7ewu6h3am4mxxeqhu3srt7zw4z5s20qu3k","recipient":"cosmos2contract","amount":"2000"}}"#.as_bytes()),
+                    send: vec![]
+                })
+            );
             let store = staking_storage(&mut deps.storage).load(&deps.api.canonical_address(&before_all.default_sender_owner).unwrap().as_slice()).unwrap();
-            println!("{:?}", store);
             assert_eq!(store.bonded, Uint128(2_000));
+            assert_eq!(store.un_bonded, Uint128::zero());
+            assert_eq!(store.available, Uint128::zero());
+            assert_eq!(store.period, 0);
+
+            // Stake more
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            let store = staking_storage(&mut deps.storage).load(&deps.api.canonical_address(&before_all.default_sender_owner).unwrap().as_slice()).unwrap();
+            assert_eq!(store.bonded, Uint128(4_000));
+            assert_eq!(store.un_bonded, Uint128::zero());
+            assert_eq!(store.available, Uint128::zero());
+            assert_eq!(store.period, 0);
+        }
+    }
+    mod unstake{
+        use super::*;
+        // handle_unstake
+        #[test]
+        fn do_not_send_funds(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[Coin{ denom: "x".to_string(), amount: Uint128(2_000) }]);
+            let msg = HandleMsg::UnStake { amount: Uint128(2_000) };
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "Do not send funds with un_stake");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
+        fn no_stake_registered_from_this_address(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            let msg = HandleMsg::UnStake { amount: Uint128(2_000) };
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            println!("{:?}", res);
+            match res {
+                Err(StdError::Unauthorized { .. }) => {}
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
+        fn unstake_more_than_staked(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            // Stake some funds
+            let msg = HandleMsg::Stake {amount: Uint128(2_000)};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            // UnStake some funds
+            let msg = HandleMsg::UnStake { amount: Uint128(3_000) };
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "You can\'t unStake more than you have (2000)");
+                }
+                _ => panic!("Unexpected error"),
+            }
+
+        }
+
+        #[test]
+        fn success(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            // Stake some funds
+            let msg = HandleMsg::Stake {amount: Uint128(2_000)};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            // UnStake some funds
+            let msg = HandleMsg::UnStake { amount: Uint128(2_000) };
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            assert_eq!(res.messages.len(), 0);
+            let state = config(&mut deps.storage).load().unwrap();
+            let store = staking_storage(&mut deps.storage).load(&deps.api.canonical_address(&before_all.default_sender).unwrap().as_slice()).unwrap();
+            assert_eq!(store.bonded, Uint128::zero());
+            assert_eq!(store.un_bonded, Uint128(2_000));
+            assert_eq!(store.available, Uint128::zero());
+            assert_eq!(store.period, env.block.height + state.unbonded_period);
+        }
+    }
+    mod claim_unstake{
+        use super::*;
+        // handle_claim_unstake
+        #[test]
+        fn do_not_send_funds(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[Coin{ denom: "x".to_string(), amount: Uint128(2_000) }]);
+            let msg = HandleMsg::ClaimUnStaked {};
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            println!("{:?}", res);
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "Do not send funds");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
+
+        #[test]
+        fn unbonded_period_not_ended(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            // Stake some funds
+            let msg = HandleMsg::Stake {amount: Uint128(2_000)};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            // UnStake some funds
+            let msg = HandleMsg::UnStake { amount: Uint128(2_000) };
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            // Claim unStaked funds
+            let msg = HandleMsg::ClaimUnStaked {};
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            println!("{:?}", res);
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "Your unBonded token will be released at block 12445");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
+
+        #[test]
+        fn success(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            // Stake some funds
+            let msg = HandleMsg::Stake {amount: Uint128(2_000)};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            // UnStake some funds
+            let msg = HandleMsg::UnStake { amount: Uint128(1_000) };
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            // Claim unStaked funds
+            let store = staking_storage(&mut deps.storage).load(&deps.api.canonical_address(&before_all.default_sender).unwrap().as_slice()).unwrap();
+            let mut env = mock_env(before_all.default_sender.clone(), &[]);
+            env.block.height = store.period + 1;
+            let msg = HandleMsg::ClaimUnStaked {};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            assert_eq!(res.messages.len(), 1);
+            assert_eq!(res.messages[0], CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: before_all.default_contract_address,
+                msg: Binary::from(r#"{"transfer":{"recipient":"cosmos2contract","amount":"1000"}}"#.as_bytes()),
+                send: vec![]
+            }));
+            let store = staking_storage(&mut deps.storage).load(&deps.api.canonical_address(&before_all.default_sender).unwrap().as_slice()).unwrap();
+            assert_eq!(store.bonded, Uint128(1_000));
+            assert_eq!(store.un_bonded, Uint128::zero());
+            assert_eq!(store.available, Uint128::zero());
+            assert_eq!(store.period, 0);
+        }
+    }
+    mod claim_reward{
+        use super::*;
+        // handle_claim_reward
+
+        #[test]
+        fn do_not_send_funds(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[Coin{ denom: "x".to_string(), amount: Uint128(2_000) }]);
+            let msg = HandleMsg::ClaimReward {};
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            println!("{:?}", res);
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "Do not send funds");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
+        fn no_rewards_available(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            // Stake some funds
+            let msg = HandleMsg::Stake {amount: Uint128(2_000)};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+
+            let msg = HandleMsg::ClaimReward {};
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            println!("{:?}", res);
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "No rewards available");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
+        fn contract_balance_to_low(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[Coin{ denom: "uusd".to_string(), amount: Uint128(10_000) }]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            // Stake some funds
+            let msg = HandleMsg::Stake {amount: Uint128(2_000)};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            let store = staking_storage(&mut deps.storage).update::<_>(&deps.api.canonical_address(&before_all.default_sender.clone()).unwrap().as_slice(), |stake| {
+                let mut stake_data = stake.unwrap();
+                stake_data.available = Uint128(11_000);
+                Ok(stake_data)
+            }).unwrap();
+
+            let msg = HandleMsg::ClaimReward {};
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "Contract balance too low");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
+        fn success(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[Coin{ denom: "uusd".to_string(), amount: Uint128(10_000) }]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            // Stake some funds
+            let msg = HandleMsg::Stake {amount: Uint128(2_000)};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            let store = staking_storage(&mut deps.storage).update::<_>(&deps.api.canonical_address(&before_all.default_sender.clone()).unwrap().as_slice(), |stake| {
+                let mut stake_data = stake.unwrap();
+                stake_data.available = Uint128(1_000);
+                Ok(stake_data)
+            }).unwrap();
+            assert_eq!(store.bonded, Uint128(2_000));
+            assert_eq!(store.un_bonded, Uint128::zero());
+            assert_eq!(store.available, Uint128(1_000));
+            assert_eq!(store.period, 0);
+            let msg = HandleMsg::ClaimReward {};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            assert_eq!(res.messages.len(), 1);
+            assert_eq!(res.messages[0], CosmosMsg::Bank(BankMsg::Send {
+                from_address: HumanAddr::from("cosmos2contract"),
+                to_address: before_all.default_sender.clone(),
+                amount: vec![Coin { denom: "uusd".to_string(), amount: Uint128(1000) }]
+            }));
+            let store = staking_storage(&mut deps.storage).load(&deps.api.canonical_address(&before_all.default_sender).unwrap().as_slice()).unwrap();
+            assert_eq!(store.bonded, Uint128(2_000));
+            assert_eq!(store.un_bonded, Uint128::zero());
+            assert_eq!(store.available, Uint128::zero());
+            assert_eq!(store.period, 0);
         }
     }
 }

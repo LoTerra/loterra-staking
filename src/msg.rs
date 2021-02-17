@@ -21,8 +21,8 @@ pub enum HandleMsg {
     ClaimReward {},
     /// Claim unStaked tokens, available after unBonded period
     ClaimUnStaked {},
-    /// LoTerra update available amount reward
-    UpdateRewardAvailable {},
+    /// LoTerra payout staking reward
+    PayoutReward {},
     /// Admin
     /// Security owner can switch on off to prevent exploit
     SafeLock {},
