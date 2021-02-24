@@ -416,7 +416,7 @@ pub fn handle_payout_reward<S: Storage, A: Api, Q: Querier>(
 
     if total_staked.is_zero() {
         //return Err(StdError::generic_err("No amount staked"));
-        let msg = BankMsg::Send {
+        let msg_no_stakers = BankMsg::Send {
             from_address: env.contract.address.clone(),
             to_address: env.message.sender.clone(),
             amount: vec![Coin {
@@ -426,7 +426,7 @@ pub fn handle_payout_reward<S: Storage, A: Api, Q: Querier>(
         };
 
         return Ok(HandleResponse {
-            messages: vec![msg.into()],
+            messages: vec![msg_no_stakers.into()],
             log: vec![],
             data: None,
         });
