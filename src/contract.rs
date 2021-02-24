@@ -415,7 +415,21 @@ pub fn handle_payout_reward<S: Storage, A: Api, Q: Querier>(
         .collect::<Vec<GetBondedResponse>>();
 
     if total_staked.is_zero() {
-        return Err(StdError::generic_err("No amount staked"));
+        //return Err(StdError::generic_err("No amount staked"));
+        let msg = BankMsg::Send {
+            from_address: env.contract.address.clone(),
+            to_address: env.message.sender.clone(),
+            amount: vec![Coin {
+                denom: state.denom_reward,
+                amount: sent,
+            }],
+        };
+
+        return Ok(HandleResponse {
+            messages: vec![msg.into()],
+            log: vec![],
+            data: None,
+        });
     }
 
     let mut claimed_amount = Uint128::zero();
@@ -435,9 +449,8 @@ pub fn handle_payout_reward<S: Storage, A: Api, Q: Querier>(
             }
         }
     }
-    println!("{}", claimed_amount);
-    let final_refund_balance = sent.sub(claimed_amount)?;
 
+    let final_refund_balance = sent.sub(claimed_amount)?;
     if final_refund_balance.is_zero() {
         return Ok(HandleResponse::default());
     }
@@ -1243,17 +1256,13 @@ mod tests {
                 }],
             );
             let msg = HandleMsg::PayoutReward {};
-            let res = handle(&mut deps, env.clone(), msg.clone());
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            assert_eq!(res.messages[0], CosmosMsg::Bank(BankMsg::Send {
+                from_address: env.contract.address,
+                to_address: before_all.default_sender,
+                amount: vec![Coin { denom: "uusd".to_string(), amount: Uint128(10000) }]
+            }));
             println!("{:?}", res);
-            match res {
-                Err(GenericErr {
-                    msg,
-                    backtrace: None,
-                }) => {
-                    assert_eq!(msg, "No amount staked");
-                }
-                _ => panic!("Unexpected error"),
-            }
         }
 
         #[test]
