@@ -108,6 +108,9 @@ pub fn handle_stake<S: Storage, A: Api, Q: Querier>(
     if !env.message.sent_funds.is_empty() {
         return Err(StdError::generic_err("Do not send funds with stake"));
     }
+    if amount.is_zero(){
+        return Err(StdError::generic_err("Amount required"));
+    }
     // Prepare msg to send
     let msg = QueryMsg::TransferFrom {
         owner: env.message.sender.clone(),
@@ -186,6 +189,9 @@ pub fn handle_unstake<S: Storage, A: Api, Q: Querier>(
 
     if !env.message.sent_funds.is_empty() {
         return Err(StdError::generic_err("Do not send funds with un_stake"));
+    }
+    if amount.is_zero(){
+        return Err(StdError::generic_err("Amount required"));
     }
 
     let sender_canonical = deps.api.canonical_address(&env.message.sender)?;
@@ -705,6 +711,29 @@ mod tests {
             }
         }
         #[test]
+        fn amount_required(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(
+                before_all.default_sender_owner.clone(),
+                &[],
+            );
+            let msg = HandleMsg::Stake {
+                amount: Uint128(0),
+            };
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "Amount required");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
+        #[test]
         fn success() {
             let before_all = before_all();
             let mut deps = mock_dependencies(before_all.default_length, &[]);
@@ -825,7 +854,29 @@ mod tests {
                 _ => panic!("Unexpected error"),
             }
         }
-
+        #[test]
+        fn amount_required(){
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(
+                before_all.default_sender.clone(),
+                &[],
+            );
+            let msg = HandleMsg::UnStake {
+                amount: Uint128(0),
+            };
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "Amount required");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
         #[test]
         fn success() {
             let before_all = before_all();
