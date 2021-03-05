@@ -518,6 +518,7 @@ fn query_holder<S: Storage, A: Api, Q: Querier>(
         bonded: store.bonded,
         un_bonded: store.un_bonded,
         available: store.available,
+        period: store.period
     })
 }
 

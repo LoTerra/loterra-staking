@@ -63,6 +63,7 @@ pub struct GetHolderResponse {
     pub bonded: Uint128,
     pub un_bonded: Uint128,
     pub available: Uint128,
+    pub period: u64,
 }
 
 pub type ConfigResponse = State;
