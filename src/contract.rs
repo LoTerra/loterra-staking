@@ -407,14 +407,14 @@ pub fn handle_payout_reward<S: Storage, A: Api, Q: Querier>(
     let staking = staking_storage(&mut deps.storage)
         .range(None, None, Order::Descending)
         .flat_map(|item| {
-            item.and_then(|(k, staker)| {
-                if !staker.bonded.is_zero() {
-                    total_staked = total_staked.add(staker.bonded);
+            item.and_then(|(k, stake)| {
+                if !stake.bonded.is_zero() {
+                    total_staked = total_staked.add(stake.bonded);
                 }
 
                 Ok(GetBondedResponse {
                     address: CanonicalAddr::from(k),
-                    bonded: staker.bonded,
+                    bonded: stake.bonded,
                 })
             })
         })
@@ -439,13 +439,13 @@ pub fn handle_payout_reward<S: Storage, A: Api, Q: Querier>(
     }
 
     let mut claimed_amount = Uint128::zero();
-    for staker in staking {
-        if !staker.bonded.is_zero() {
-            let reward = staker.bonded.multiply_ratio(sent, total_staked);
+    for stakeHolder in staking {
+        if !stakeHolder.bonded.is_zero() {
+            let reward = stakeHolder.bonded.multiply_ratio(sent, total_staked);
             if !reward.is_zero() {
                 claimed_amount = claimed_amount.add(reward);
                 staking_storage(&mut deps.storage).update::<_>(
-                    &staker.address.as_slice(),
+                    &stakeHolder.address.as_slice(),
                     |stake| {
                         let mut stake_data = stake.unwrap();
                         stake_data.available = stake_data.available.add(reward);
