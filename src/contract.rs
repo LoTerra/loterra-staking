@@ -1318,7 +1318,7 @@ mod tests {
         }
 
         #[test]
-        fn success() {
+        fn success_more_rewards_than_total_staked() {
             let before_all = before_all();
             let mut deps = mock_dependencies(before_all.default_length, &[]);
             default_init(&mut deps);
@@ -1340,12 +1340,12 @@ mod tests {
                 amount: Uint128(22_178),
             };
             let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
-
+            let total_rewards = Uint128(124_368);
             let env = mock_env(
                 before_all.default_contract_address.clone(),
                 &[Coin {
                     denom: "uusd".to_string(),
-                    amount: Uint128(124_368),
+                    amount: total_rewards.clone(),
                 }],
             );
             let msg = HandleMsg::PayoutReward {};
@@ -1374,6 +1374,7 @@ mod tests {
                 )
                 .unwrap();
             println!("{:?}", store);
+            let rewards1 = store.available;
             assert_eq!(store.bonded, Uint128(2_153));
             assert_eq!(store.un_bonded, Uint128::zero());
             assert_eq!(store.available, Uint128(6_748));
@@ -1389,6 +1390,7 @@ mod tests {
                 )
                 .unwrap();
             println!("{:?}", store);
+            let rewards2 = store.available;
             assert_eq!(store.bonded, Uint128(15_345));
             assert_eq!(store.un_bonded, Uint128::zero());
             assert_eq!(store.available, Uint128(48_100));
@@ -1404,10 +1406,114 @@ mod tests {
                 )
                 .unwrap();
             println!("{:?}", store);
+            let rewards3 = store.available;
             assert_eq!(store.bonded, Uint128(22_178));
             assert_eq!(store.un_bonded, Uint128::zero());
             assert_eq!(store.available, Uint128(69_518));
             assert_eq!(store.period, 0);
+
+            // Assert total shared rewards is equal sub refunds of 1 UST
+            let total_shared_rewards = rewards1.u128() + rewards2.u128() + rewards3.u128();
+            assert_eq!(total_rewards.u128() - 2, total_shared_rewards)
+        }
+        #[test]
+        fn success_less_rewards_than_total_staked() {
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            // Stake some funds
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            let msg = HandleMsg::Stake {
+                amount: Uint128(2_153),
+            };
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            // Stake more funds
+            let env = mock_env(before_all.default_sender_two.clone(), &[]);
+            let msg = HandleMsg::Stake {
+                amount: Uint128(15_345),
+            };
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            // Stake more funds
+            let env = mock_env(before_all.default_sender_owner.clone(), &[]);
+            let msg = HandleMsg::Stake {
+                amount: Uint128(22_178),
+            };
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            let total_rewards = Uint128(12_368);
+            let env = mock_env(
+                before_all.default_contract_address.clone(),
+                &[Coin {
+                    denom: "uusd".to_string(),
+                    amount: total_rewards.clone(),
+                }],
+            );
+            let msg = HandleMsg::PayoutReward {};
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            println!("{:?}", res);
+            assert_eq!(res.messages.len(), 1);
+            assert_eq!(
+                res.messages[0],
+                CosmosMsg::Bank(BankMsg::Send {
+                    from_address: HumanAddr::from("cosmos2contract"),
+                    to_address: before_all.default_contract_address.clone(),
+                    amount: vec![Coin {
+                        denom: "uusd".to_string(),
+                        amount: Uint128(1)
+                    }]
+                })
+            );
+
+            let store = staking_storage(&mut deps.storage)
+                .load(
+                    &deps
+                        .api
+                        .canonical_address(&before_all.default_sender)
+                        .unwrap()
+                        .as_slice(),
+                )
+                .unwrap();
+            println!("{:?}", store);
+            let rewards1 = store.available;
+            assert_eq!(store.bonded, Uint128(2_153));
+            assert_eq!(store.un_bonded, Uint128::zero());
+            assert_eq!(store.available, Uint128(671));
+            assert_eq!(store.period, 0);
+
+            let store = staking_storage(&mut deps.storage)
+                .load(
+                    &deps
+                        .api
+                        .canonical_address(&before_all.default_sender_two)
+                        .unwrap()
+                        .as_slice(),
+                )
+                .unwrap();
+            println!("{:?}", store);
+            let rewards2 = store.available;
+            assert_eq!(store.bonded, Uint128(15_345));
+            assert_eq!(store.un_bonded, Uint128::zero());
+            assert_eq!(store.available, Uint128(4_783));
+            assert_eq!(store.period, 0);
+
+            let store = staking_storage(&mut deps.storage)
+                .load(
+                    &deps
+                        .api
+                        .canonical_address(&before_all.default_sender_owner)
+                        .unwrap()
+                        .as_slice(),
+                )
+                .unwrap();
+            println!("{:?}", store);
+            let rewards3 = store.available;
+            assert_eq!(store.bonded, Uint128(22_178));
+            assert_eq!(store.un_bonded, Uint128::zero());
+            assert_eq!(store.available, Uint128(6_913));
+            assert_eq!(store.period, 0);
+
+            // Assert total shared rewards is equal sub refunds of 1 UST
+            let total_shared_rewards = rewards1.u128() + rewards2.u128() + rewards3.u128();
+            assert_eq!(total_rewards.u128() - 1, total_shared_rewards)
         }
     }
 }
