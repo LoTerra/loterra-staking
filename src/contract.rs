@@ -4,7 +4,7 @@ use cosmwasm_std::{
     WasmMsg,
 };
 
-use crate::msg::{ConfigResponse, GetBondedResponse, GetHolderResponse, HandleMsg, InitMsg, QueryMsg};
+use crate::msg::{ConfigResponse, GetBondedResponse, GetHolderResponse,GetAllBondedResponse, HandleMsg, InitMsg, QueryMsg};
 use crate::state::{
     config, config_read, staking_storage, staking_storage_read, StakingInfo, State,
 };
@@ -23,7 +23,6 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         unbonded_period: msg.unbonded_period,
         denom_reward: msg.denom_reward,
         safe_lock: false,
-        total_bonded: Uint128::zero(),
     };
 
     config(&mut deps.storage).save(&state)?;
@@ -96,7 +95,7 @@ pub fn handle_stake<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let mut state = config(&mut deps.storage).load()?;
+    let state = config(&mut deps.storage).load()?;
 
     if state.safe_lock {
         return Err(StdError::generic_err(
@@ -149,9 +148,6 @@ pub fn handle_stake<S: Storage, A: Api, Q: Querier>(
         }
     };
 
-    state.total_bonded = state.total_bonded.add(amount);
-    config(&mut deps.storage).save(&state);
-
     Ok(HandleResponse {
         messages: vec![res.into()],
         log: vec![
@@ -181,7 +177,7 @@ pub fn handle_unstake<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let mut state = config(&mut deps.storage).load()?;
+    let state = config(&mut deps.storage).load()?;
 
     if state.safe_lock {
         return Err(StdError::generic_err(
@@ -220,9 +216,6 @@ pub fn handle_unstake<S: Storage, A: Api, Q: Querier>(
             return Err(StdError::Unauthorized { backtrace: None });
         }
     };
-
-    state.total_bonded = state.total_bonded.sub(amount)?;
-    config(&mut deps.storage).save(&state);
 
     Ok(HandleResponse {
         messages: vec![],
@@ -490,7 +483,8 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
         QueryMsg::GetHolder { address } => to_binary(&query_holder(deps, address)?),
         QueryMsg::TransferFrom { .. } => to_binary(&query_transfer_from(deps)?),
-        QueryMsg::Transfer { .. } => to_binary(&query_transfer(deps)?)
+        QueryMsg::Transfer { .. } => to_binary(&query_transfer(deps)?),
+        QueryMsg::GetAllBonded {} => to_binary(&query_all_bonded(deps)?)
     }
 }
 
@@ -524,6 +518,27 @@ fn query_holder<S: Storage, A: Api, Q: Querier>(
         un_bonded: store.un_bonded,
         available: store.available,
         period: store.period
+    })
+}
+fn query_all_bonded<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+) -> StdResult<GetAllBondedResponse> {
+
+    let total_bonded = staking_storage_read(&deps.storage)
+        .range(None, None, Order::Descending)
+        .flat_map(|item| {
+            item.and_then(|(k, stake)| {
+                Ok(stake.bonded)
+            })
+        }
+    ).collect::<Vec<Uint128>>();
+
+    let mut total = Uint128::zero();
+    for bonded in total_bonded{
+        total = total.add(bonded);
+    }
+    Ok(GetAllBondedResponse{
+        total_bonded: total
     })
 }
 
@@ -788,9 +803,8 @@ mod tests {
             assert_eq!(store.available, Uint128::zero());
             assert_eq!(store.period, 0);
 
-            let state = config(&mut deps.storage).load().unwrap();
-            println!("{}", state.total_bonded);
-            assert_eq!(state.total_bonded, Uint128(4_000));
+            let all_bonded = query_all_bonded(&deps).unwrap();
+            assert_eq!(all_bonded.total_bonded, Uint128(4_000));
         }
     }
     mod unstake {
@@ -919,8 +933,8 @@ mod tests {
             assert_eq!(store.available, Uint128::zero());
             assert_eq!(store.period, env.block.height + state.unbonded_period);
 
-            let state = config(&mut deps.storage).load().unwrap();
-            assert_eq!(state.total_bonded, Uint128(500));
+            let all_bonded = query_all_bonded(&deps).unwrap();
+            assert_eq!(all_bonded.total_bonded, Uint128(500));
         }
     }
     mod claim_unstake {

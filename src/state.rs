@@ -17,7 +17,6 @@ pub struct State {
     pub unbonded_period: u64,
     pub denom_reward: String,
     pub safe_lock: bool,
-    pub total_bonded: Uint128,
 }
 
 pub fn config<S: Storage>(storage: &mut S) -> Singleton<S, State> {

@@ -37,6 +37,8 @@ pub enum QueryMsg {
     Config {},
     /// Get specific holder, address and balance
     GetHolder { address: HumanAddr },
+    /// Get specific all bonded tokens
+    GetAllBonded {},
     /// Not used to be called directly
     TransferFrom {
         owner: HumanAddr,
@@ -64,6 +66,12 @@ pub struct GetHolderResponse {
     pub un_bonded: Uint128,
     pub available: Uint128,
     pub period: u64,
+}
+
+// We define a custom struct for each query response
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct GetAllBondedResponse {
+    pub total_bonded: Uint128,
 }
 
 pub type ConfigResponse = State;

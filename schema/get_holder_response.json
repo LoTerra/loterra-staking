@@ -6,6 +6,7 @@
     "address",
     "available",
     "bonded",
+    "period",
     "un_bonded"
   ],
   "properties": {
@@ -17,6 +18,11 @@
     },
     "bonded": {
       "$ref": "#/definitions/Uint128"
+    },
+    "period": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
     },
     "un_bonded": {
       "$ref": "#/definitions/Uint128"

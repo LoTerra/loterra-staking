@@ -35,6 +35,18 @@
       }
     },
     {
+      "description": "Get specific all bonded tokens",
+      "type": "object",
+      "required": [
+        "get_all_bonded"
+      ],
+      "properties": {
+        "get_all_bonded": {
+          "type": "object"
+        }
+      }
+    },
+    {
       "description": "Not used to be called directly",
       "type": "object",
       "required": [
