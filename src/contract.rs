@@ -4,9 +4,7 @@ use cosmwasm_std::{
     WasmMsg,
 };
 
-use crate::msg::{
-    ConfigResponse, GetBondedResponse, GetHolderResponse, HandleMsg, InitMsg, QueryMsg,
-};
+use crate::msg::{ConfigResponse, GetBondedResponse, GetHolderResponse, HandleMsg, InitMsg, QueryMsg};
 use crate::state::{
     config, config_read, staking_storage, staking_storage_read, StakingInfo, State,
 };
@@ -25,6 +23,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         unbonded_period: msg.unbonded_period,
         denom_reward: msg.denom_reward,
         safe_lock: false,
+        total_bonded: Uint128::zero(),
     };
 
     config(&mut deps.storage).save(&state)?;
@@ -97,7 +96,7 @@ pub fn handle_stake<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let state = config(&mut deps.storage).load()?;
+    let mut state = config(&mut deps.storage).load()?;
 
     if state.safe_lock {
         return Err(StdError::generic_err(
@@ -150,6 +149,9 @@ pub fn handle_stake<S: Storage, A: Api, Q: Querier>(
         }
     };
 
+    state.total_bonded = state.total_bonded.add(amount);
+    config(&mut deps.storage).save(&state);
+
     Ok(HandleResponse {
         messages: vec![res.into()],
         log: vec![
@@ -179,7 +181,7 @@ pub fn handle_unstake<S: Storage, A: Api, Q: Querier>(
     env: Env,
     amount: Uint128,
 ) -> StdResult<HandleResponse> {
-    let state = config(&mut deps.storage).load()?;
+    let mut state = config(&mut deps.storage).load()?;
 
     if state.safe_lock {
         return Err(StdError::generic_err(
@@ -218,6 +220,9 @@ pub fn handle_unstake<S: Storage, A: Api, Q: Querier>(
             return Err(StdError::Unauthorized { backtrace: None });
         }
     };
+
+    state.total_bonded = state.total_bonded.sub(amount)?;
+    config(&mut deps.storage).save(&state);
 
     Ok(HandleResponse {
         messages: vec![],
@@ -485,7 +490,7 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
         QueryMsg::GetHolder { address } => to_binary(&query_holder(deps, address)?),
         QueryMsg::TransferFrom { .. } => to_binary(&query_transfer_from(deps)?),
-        QueryMsg::Transfer { .. } => to_binary(&query_transfer(deps)?),
+        QueryMsg::Transfer { .. } => to_binary(&query_transfer(deps)?)
     }
 }
 
@@ -782,6 +787,10 @@ mod tests {
             assert_eq!(store.un_bonded, Uint128::zero());
             assert_eq!(store.available, Uint128::zero());
             assert_eq!(store.period, 0);
+
+            let state = config(&mut deps.storage).load().unwrap();
+            println!("{}", state.total_bonded);
+            assert_eq!(state.total_bonded, Uint128(4_000));
         }
     }
     mod unstake {
@@ -891,7 +900,7 @@ mod tests {
             let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
             // UnStake some funds
             let msg = HandleMsg::UnStake {
-                amount: Uint128(2_000),
+                amount: Uint128(1_500),
             };
             let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
             assert_eq!(res.messages.len(), 0);
@@ -905,10 +914,13 @@ mod tests {
                         .as_slice(),
                 )
                 .unwrap();
-            assert_eq!(store.bonded, Uint128::zero());
-            assert_eq!(store.un_bonded, Uint128(2_000));
+            assert_eq!(store.bonded, Uint128(500));
+            assert_eq!(store.un_bonded, Uint128(1_500));
             assert_eq!(store.available, Uint128::zero());
             assert_eq!(store.period, env.block.height + state.unbonded_period);
+
+            let state = config(&mut deps.storage).load().unwrap();
+            assert_eq!(state.total_bonded, Uint128(500));
         }
     }
     mod claim_unstake {
