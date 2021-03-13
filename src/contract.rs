@@ -260,7 +260,7 @@ pub fn handle_claim_unstake<S: Storage, A: Api, Q: Querier>(
     }
     // Prepare msg to send
     let msg = QueryMsg::Transfer {
-        recipient: env.contract.address.clone(),
+        recipient: env.message.sender.clone(),
         amount: store.un_bonded,
     };
     // Convert state address of loterra cw-20
@@ -1033,7 +1033,7 @@ mod tests {
                 CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: before_all.default_contract_address,
                     msg: Binary::from(
-                        r#"{"transfer":{"recipient":"cosmos2contract","amount":"1000"}}"#
+                        r#"{"transfer":{"recipient":"terra1q88h7ewu6h3am4mxxeqhu3srt7zw4z5s20q007","amount":"1000"}}"#
                             .as_bytes()
                     ),
                     send: vec![]
