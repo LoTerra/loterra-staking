@@ -9,6 +9,7 @@ use crate::state::{
     config, config_read, staking_storage, staking_storage_read, StakingInfo, State,
 };
 use std::ops::{Add, Sub};
+use std::io::Stderr;
 
 pub fn init<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -257,6 +258,9 @@ pub fn handle_claim_unstake<S: Storage, A: Api, Q: Querier>(
             "Your unBonded token will be released at block {}",
             store.period
         )));
+    }
+    if store.un_bonded.is_zero(){
+        return Err(StdError::generic_err("No amount available"))
     }
     // Prepare msg to send
     let msg = QueryMsg::Transfer {
@@ -996,7 +1000,41 @@ mod tests {
                 _ => panic!("Unexpected error"),
             }
         }
-
+        #[test]
+        fn no_amount_to_unstake() {
+            let before_all = before_all();
+            let mut deps = mock_dependencies(before_all.default_length, &[]);
+            default_init(&mut deps);
+            let env = mock_env(before_all.default_sender.clone(), &[]);
+            // Stake some funds
+            let msg = HandleMsg::Stake {
+                amount: Uint128(2_000),
+            };
+            let res = handle(&mut deps, env.clone(), msg.clone()).unwrap();
+            // Claim unStaked funds
+            let store = staking_storage(&mut deps.storage)
+                .load(
+                    &deps
+                        .api
+                        .canonical_address(&before_all.default_sender)
+                        .unwrap()
+                        .as_slice(),
+                )
+                .unwrap();
+            let mut env = mock_env(before_all.default_sender.clone(), &[]);
+            env.block.height = store.period + 1;
+            let msg = HandleMsg::ClaimUnStaked {};
+            let res = handle(&mut deps, env.clone(), msg.clone());
+            match res {
+                Err(GenericErr {
+                        msg,
+                        backtrace: None,
+                    }) => {
+                    assert_eq!(msg, "No amount available");
+                }
+                _ => panic!("Unexpected error"),
+            }
+        }
         #[test]
         fn success() {
             let before_all = before_all();
